@@ -23363,15 +23363,14 @@ export type RequestAccessConfiguration = {
 
 export type RequestAccessConfigureInput = {
   approval_admin?: InputMaybe<Array<InputMaybe<Scalars['ID']['input']>>>;
-  approve_status_template_id?: InputMaybe<Scalars['ID']['input']>;
-  decline_status_template_id?: InputMaybe<Scalars['ID']['input']>;
+  approved_status_id?: InputMaybe<Scalars['ID']['input']>;
+  declined_status_id?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type RequestAccessMember = {
   __typename?: 'RequestAccessMember';
   id: Scalars['ID']['output'];
   name: Scalars['String']['output'];
-  type: Scalars['String']['output'];
 };
 
 export type RequestAccessStatus = {
@@ -26484,6 +26483,7 @@ export type SubType = {
   label: Scalars['String']['output'];
   settings?: Maybe<EntitySetting>;
   statuses: Array<Status>;
+  statusesRequestAccess: Array<Status>;
   workflowEnabled?: Maybe<Scalars['Boolean']['output']>;
 };
 
@@ -39749,7 +39749,6 @@ export type RequestAccessConfigurationResolvers<ContextType = any, ParentType ex
 export type RequestAccessMemberResolvers<ContextType = any, ParentType extends ResolversParentTypes['RequestAccessMember'] = ResolversParentTypes['RequestAccessMember']> = ResolversObject<{
   id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
   name?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
-  type?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   __isTypeOf?: IsTypeOfResolverFn<ParentType, ContextType>;
 }>;
 
@@ -40914,6 +40913,7 @@ export type SubTypeResolvers<ContextType = any, ParentType extends ResolversPare
   label?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   settings?: Resolver<Maybe<ResolversTypes['EntitySetting']>, ParentType, ContextType>;
   statuses?: Resolver<Array<ResolversTypes['Status']>, ParentType, ContextType>;
+  statusesRequestAccess?: Resolver<Array<ResolversTypes['Status']>, ParentType, ContextType>;
   workflowEnabled?: Resolver<Maybe<ResolversTypes['Boolean']>, ParentType, ContextType>;
   __isTypeOf?: IsTypeOfResolverFn<ParentType, ContextType>;
 }>;

@@ -41,7 +41,7 @@ import { createWork, worksForSource, workToExportFile } from './work';
 import { pushToConnector } from '../database/rabbitmq';
 import { minutesAgo, monthsAgo, now, utcDate } from '../utils/format';
 import { ENTITY_TYPE_CONNECTOR } from '../schema/internalObject';
-import { deleteFile, getFileContent, loadFile, storeFileConverter } from '../database/file-storage';
+import { defaultValidationMode, deleteFile, getFileContent, loadFile, storeFileConverter, uploadJobImport } from '../database/file-storage';
 import { findById as documentFindById, paginatedForPathWithEnrichment } from '../modules/internal/document/document-domain';
 import { elCount, elFindByIds, elUpdateElement } from '../database/engine';
 import { generateStandardId, getInstanceIds } from '../schema/identifier';
@@ -80,6 +80,7 @@ import { AI_BUS } from '../modules/ai/ai-types';
 import { lockResources } from '../lock/master-lock';
 import { elRemoveElementFromDraft } from '../database/draft-engine';
 import { FILES_UPDATE_KEY, getDraftChanges, isDraftFile } from '../database/draft-utils';
+import { controlUserConfidenceAgainstElement } from '../utils/confidence-level';
 
 const AI_INSIGHTS_REFRESH_TIMEOUT = conf.get('ai:insights_refresh_timeout');
 const aiResponseCache = {};
@@ -669,6 +670,168 @@ export const stixCoreAnalysis = async (context, user, entityId, contentSource, c
     .filter((e) => e.matchedEntity);
 
   return { analysisType, mappedEntities, analysisStatus: 'complete', analysisDate: analysis.lastModified };
+};
+
+export const stixCoreObjectImportFile = async (context, user, id, file, args = {}) => {
+  let lock;
+  const {
+    noTriggerImport,
+    version: fileVersion,
+    fileMarkings: file_markings,
+    importContextEntities,
+    fromTemplate = false,
+    connectors = [],
+    bypassEntityId = null,
+    bypassValidation = false,
+    validationMode = defaultValidationMode
+  } = args;
+
+  const previous = await storeLoadByIdWithRefs(context, user, id);
+  if (!previous) {
+    throw UnsupportedError('Cant upload a file an none existing element', { id });
+  }
+  // check entity access
+  if (!validateUserAccessOperation(user, previous, 'edit')) {
+    throw ForbiddenAccess();
+  }
+  const participantIds = getInstanceIds(previous);
+  try {
+    // Lock the participants that will be merged
+    lock = await lockResources(participantIds);
+    const { internal_id: internalId } = previous;
+    const { filename } = await file;
+    const entitySetting = await getEntitySettingFromCache(context, previous.entity_type);
+    const isAutoExternal = !entitySetting ? false : entitySetting.platform_entity_files_ref;
+    const filePath = fromTemplate
+      ? `fromTemplate/${previous.entity_type}/${internalId}`
+      : `import/${previous.entity_type}/${internalId}`;
+    // 01. Upload the file
+    const meta = { version: fileVersion?.toISOString() };
+    if (isAutoExternal) {
+      const key = `${filePath}/${filename}`;
+      meta.external_reference_id = generateStandardId(ENTITY_TYPE_EXTERNAL_REFERENCE, { url: `/storage/get/${key}` });
+    }
+    const {
+      upload: uploadedFile,
+      untouched,
+    } = await uploadToStorage(context, user, filePath, file, { meta, noTriggerImport, entity: previous, file_markings, importContextEntities });
+    if (untouched) {
+      // When synchronizing the version can be the same.
+      // If it's the case, just return without any x_opencti_files modifications
+      return uploadedFile;
+    }
+    // 02. Create and link external ref if needed.
+    let addedExternalRef;
+    if (isAutoExternal) {
+      // Create external ref + link to current entity
+      const createExternal = { source_name: filename, url: `/storage/get/${uploadedFile.id}`, fileId: uploadedFile.id };
+      const externalRef = await createEntity(context, user, createExternal, ENTITY_TYPE_EXTERNAL_REFERENCE);
+      const relInput = { fromId: id, toId: externalRef.id, relationship_type: RELATION_EXTERNAL_REFERENCE };
+      const opts = { publishStreamEvent: false, locks: participantIds };
+      await createRelationRaw(context, user, relInput, opts);
+      addedExternalRef = externalRef;
+    }
+    // Patch the updated_at to force live stream evolution
+    const eventFile = storeFileConverter(user, uploadedFile);
+    const files = [...(previous.x_opencti_files ?? []).filter((f) => f.id !== uploadedFile.id), eventFile];
+    const nonResolvedFiles = files.map((f) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { [INPUT_MARKINGS]: markingInput, ...nonResolvedFile } = f;
+      return nonResolvedFile;
+    });
+
+    const elementWithUpdatedFiles = {
+      _index: previous._index,
+      internal_id: internalId,
+      entity_type: previous.entity_type, // required for schema validation
+      updated_at: now(),
+      x_opencti_files: nonResolvedFiles
+    };
+    if (getDraftContext(context, user)) {
+      elementWithUpdatedFiles._id = previous._id;
+      const eventFileInput = { key: FILES_UPDATE_KEY, value: [uploadedFile.id], operation: UPDATE_OPERATION_ADD };
+      elementWithUpdatedFiles.draft_change = getDraftChanges(previous, [eventFileInput]);
+    }
+    await elUpdateElement(context, user, elementWithUpdatedFiles);
+    // Stream event generation
+    const fileMarkings = R.uniq(R.flatten(files.filter((f) => f.file_markings).map((f) => f.file_markings)));
+    let fileMarkingsPromise = Promise.resolve();
+    if (fileMarkings.length > 0) {
+      const argsMarkings = { type: ENTITY_TYPE_MARKING_DEFINITION, toMap: true, connectionFormat: false, baseData: true };
+      fileMarkingsPromise = elFindByIds(context, SYSTEM_USER, R.uniq(fileMarkings), argsMarkings);
+    }
+    const fileMarkingsMap = await fileMarkingsPromise;
+    const resolvedFiles = [];
+    files.forEach((f) => {
+      if (isNotEmptyField(f.file_markings)) {
+        resolvedFiles.push({ ...f, [INPUT_MARKINGS]: f.file_markings.map((m) => fileMarkingsMap[m]).filter((fm) => fm) });
+      } else {
+        resolvedFiles.push(f);
+      }
+    });
+    if (addedExternalRef) {
+      const newExternalRefs = [...(previous[INPUT_EXTERNAL_REFS] ?? []), addedExternalRef];
+      const instance = { ...previous, x_opencti_files: resolvedFiles, [INPUT_EXTERNAL_REFS]: newExternalRefs };
+      const message = `adds \`${uploadedFile.name}\` in \`files\` and \`external_references\``;
+      await storeUpdateEvent(context, user, previous, instance, message);
+    } else {
+      const instance = { ...previous, x_opencti_files: resolvedFiles };
+      await storeUpdateEvent(context, user, previous, instance, `adds \`${uploadedFile.name}\` in \`files\``);
+    }
+    // Add in activity only for notifications
+    const contextData = buildContextDataForFile(previous, filePath, uploadedFile.name, uploadedFile.metaData.file_markings);
+    await publishUserAction({
+      user,
+      event_type: 'file',
+      event_access: 'extended',
+      event_scope: 'create',
+      prevent_indexing: true,
+      context_data: contextData
+    });
+
+    if (!connectors) {
+      return uploadedFile;
+    }
+
+    await Promise.all(connectors.map(async ({ connectorId, configuration }) => {
+      const entityId = bypassEntityId || uploadedFile.metaData.entity_id;
+      const opts = { manual: true, connectorId, configuration, bypassValidation, validationMode };
+      const entity = await internalLoadById(context, user, entityId);
+      // This is a manual request for import, we have to check confidence and throw on error
+      if (entity) {
+        controlUserConfidenceAgainstElement(user, entity);
+      }
+      const connectorsJobs = await uploadJobImport(context, user, uploadedFile, entityId, opts);
+      const entityName = entityId ? extractEntityRepresentativeName(entity) : 'global';
+      const entityType = entityId ? entity.entity_type : 'global';
+      const baseData = {
+        id: entityId,
+        file_id: uploadedFile.id,
+        file_name: uploadedFile.name,
+        file_mime: uploadedFile.metaData.mimetype,
+        connectors: connectorsJobs.map((c) => c.name),
+        entity_name: entityName,
+        entity_type: entityType
+      };
+
+      const contextDataJobs = completeContextDataForEntity(baseData, entity);
+      await publishUserAction({
+        user,
+        event_access: 'extended',
+        event_type: 'command',
+        event_scope: 'import',
+        context_data: contextDataJobs
+      });
+    }));
+    return uploadedFile;
+  } catch (err) {
+    if (err.name === TYPE_LOCK_ERROR) {
+      throw LockTimeoutError({ participantIds });
+    }
+    throw err;
+  } finally {
+    if (lock) await lock.unlock();
+  }
 };
 
 export const stixCoreObjectImportPush = async (context, user, id, file, args = {}) => {

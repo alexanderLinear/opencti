@@ -1875,6 +1875,11 @@ enum ConnectorType {
   STREAM
 }
 
+input ConnectorWithConfig {
+  connectorId: String
+  configuration: String
+}
+
 input ExportAskInput {
   format: String!
   exportType: String!
@@ -8387,6 +8392,7 @@ type StixCoreObjectEditMutations {
   analysisPush(file: Upload!, contentSource: String!, contentType: AnalysisContentType!, analysisType: String!): File
   analysisClear(contentSource: String!, contentType: AnalysisContentType!): Boolean
   importPush(file: Upload!, fileMarkings: [String], version: DateTime, noTriggerImport: Boolean, fromTemplate: Boolean): File
+  uploadAndAskJobImport(file: Upload!, connectors: [ConnectorWithConfig], fileMarkings: [String], validationMode: ValidationMode, bypassEntityId: String, bypassValidation: Boolean, version: DateTime, noTriggerImport: Boolean, fromTemplate: Boolean): File
   exportAsk(input: ExportAskInput!): [File!]
   exportPush(file: Upload!): Boolean
   removeFromDraft: ID
@@ -8687,11 +8693,6 @@ type StixRefRelationshipEditMutations {
 enum ValidationMode {
   draft
   workbench
-}
-
-input ConnectorWithConfig {
-  connectorId: String
-  configuration: String
 }
 
 type Mutation {

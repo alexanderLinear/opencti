@@ -133,6 +133,10 @@ export const uploadAndAskJobImport = async (context, user, args) => {
     context_data: contextData
   });
 
+  if (!connectors) {
+    return uploadedFile;
+  }
+
   await Promise.all(connectors.map(async ({ connectorId, configuration }) => {
     const entityId = bypassEntityId || uploadedFile.metaData.entity_id;
     const opts = { manual: true, connectorId, configuration, bypassValidation, validationMode };

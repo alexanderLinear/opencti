@@ -1,5 +1,5 @@
 import React, { FunctionComponent, useEffect, useMemo, useState } from 'react';
-import { useNavigate, Link, useLocation } from 'react-router-dom';
+import { useNavigate, Link, useLocation, useParams } from 'react-router-dom';
 import { Badge } from '@mui/material';
 import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
@@ -189,6 +189,9 @@ const TopBarComponent: FunctionComponent<TopBarProps> = ({
       sub.unsubscribe();
     };
   });
+  const params = useParams<{ entityId: string }>();
+
+  console.log({ location, params });
   useEffect(() => {
     page();
   }, [location.pathname]);

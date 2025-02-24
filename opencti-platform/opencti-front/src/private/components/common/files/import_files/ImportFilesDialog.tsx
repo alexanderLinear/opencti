@@ -1,13 +1,20 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Dialog, DialogActions, DialogContent, DialogTitle, Typography, Box } from '@mui/material';
 import { FormikConfig, useFormik } from 'formik';
 import { AssociatedEntityOption } from '@components/common/form/AssociatedEntityField';
 import { Option } from '@components/common/form/ReferenceField';
 import ImportFilesUploader, { FileWithConnectors } from '@components/common/files/import_files/ImportFilesUploader';
 import ImportFilesOptions from '@components/common/files/import_files/ImportFilesOptions';
-import { graphql, useLazyLoadQuery, UseMutationConfig } from 'react-relay';
-import { ImportFilesDialogGlobalMutation } from '@components/common/files/import_files/__generated__/ImportFilesDialogGlobalMutation.graphql';
-import { ImportFilesDialogEntityMutation } from '@components/common/files/import_files/__generated__/ImportFilesDialogEntityMutation.graphql';
+import { graphql, UseMutationConfig, useQueryLoader } from 'react-relay';
+import { ImportFilesDialogQuery } from '@components/common/files/import_files/__generated__/ImportFilesDialogQuery.graphql';
+import {
+  ImportFilesDialogGlobalMutation,
+  ImportFilesDialogGlobalMutation$variables,
+} from '@components/common/files/import_files/__generated__/ImportFilesDialogGlobalMutation.graphql';
+import {
+  ImportFilesDialogEntityMutation,
+  ImportFilesDialogEntityMutation$variables,
+} from '@components/common/files/import_files/__generated__/ImportFilesDialogEntityMutation.graphql';
 import { Link } from 'react-router-dom';
 import ImportFilesStepper from '@components/common/files/import_files/ImportFilesStepper';
 import ImportFilesUploadProgress from '@components/common/files/import_files/ImportFilesUploadProgress';
@@ -18,9 +25,21 @@ import useApiMutation from '../../../../../utils/hooks/useApiMutation';
 import useBulkCommit from '../../../../../utils/hooks/useBulkCommit';
 import { resolveLink } from '../../../../../utils/Entity';
 
+export const CSV_MAPPER_NAME = '[FILE] CSV Mapper import';
+
 const importFilesDialogGlobalMutation = graphql`
-  mutation ImportFilesDialogGlobalMutation($file: Upload!, $fileMarkings: [String]) {
-    uploadImport(file: $file, fileMarkings: $fileMarkings) {
+  mutation ImportFilesDialogGlobalMutation(
+    $file: Upload!,
+    $fileMarkings: [String],
+    $connectors: [ConnectorWithConfig],
+    $validationMode: ValidationMode,
+  ) {
+    uploadAndAskJobImport(
+      file: $file,
+      connectors: $connectors,
+      fileMarkings: $fileMarkings,
+      validationMode: $validationMode
+    ) {
       id
       ...FileLine_file
     }
@@ -28,9 +47,20 @@ const importFilesDialogGlobalMutation = graphql`
 `;
 
 const importFilesDialogEntityMutation = graphql`
-  mutation ImportFilesDialogEntityMutation($id: ID!, $file: Upload!, $fileMarkings: [String]) {
+  mutation ImportFilesDialogEntityMutation(
+    $id: ID!,
+    $file: Upload!,
+    $fileMarkings: [String],
+    $connectors: [ConnectorWithConfig],
+    $validationMode: ValidationMode,
+  ) {
     stixCoreObjectEdit(id: $id) {
-      importPush(file: $file, fileMarkings: $fileMarkings) {
+      uploadAndAskJobImport(
+        file: $file,
+        connectors: $connectors,
+        fileMarkings: $fileMarkings,
+        validationMode: $validationMode
+      ) {
         id
         ...FileLine_file
         metaData {
@@ -48,9 +78,22 @@ const importFilesDialogEntityMutation = graphql`
   }
 `;
 
-const importContentQuery = graphql`
+export const importFilesDialogQuery = graphql`
   query ImportFilesDialogQuery {
-    ...ImportFilesUploader_connectors  # Include fragment
+    connectorsForImport {
+      id
+      name
+      active
+      auto
+      only_contextual
+      connector_scope
+      updated_at
+      configurations {
+        id
+        name
+        configuration
+      }
+    }
   }
 `;
 
@@ -73,7 +116,13 @@ const ImportFilesDialog = ({ open, handleClose, entityId }: ImportFilesDialogPro
   const [uploadStatus, setUploadStatus] = useState<undefined | 'uploading' | 'success'>();
   const [uploadedFiles, setUploadedFiles] = useState<{ name: string; status?: 'success' | 'error' }[]>([]);
 
-  const importContentData = useLazyLoadQuery<ImportFilesDialogQuery>(importContentQuery, {});
+  const [queryRef, loadQuery] = useQueryLoader<ImportFilesDialogQuery>(importFilesDialogQuery);
+
+  useEffect(() => {
+    if (open) {
+      loadQuery({});
+    }
+  }, [open, loadQuery]);
 
   const [commitGlobal] = useApiMutation<ImportFilesDialogGlobalMutation>(
     importFilesDialogGlobalMutation,
@@ -101,14 +150,39 @@ const ImportFilesDialog = ({ open, handleClose, entityId }: ImportFilesDialogPro
     type: 'files',
   });
 
+  // Check if CSV connector have a configuration mapper selected
+  const isValid = useMemo(() => {
+    return files.every((file) => {
+      const hasCsvMapperConnector = file.connectors?.some((connector) => connector.name === CSV_MAPPER_NAME);
+
+      return hasCsvMapperConnector ? !!file.configuration : true;
+    });
+  }, [files]);
+
   const onSubmit: FormikConfig<OptionsFormValues>['onSubmit'] = (values, { setErrors }) => {
     setUploadStatus('uploading');
     const selectedEntityId = entityId ?? (values.associatedEntity?.value || undefined);
     const fileMarkingIds = values.fileMarkings.map(({ value }) => value);
 
-    const variables = files.map(({ file }) => (selectedEntityId
-      ? { id: selectedEntityId, file, fileMarkings: fileMarkingIds }
-      : { file, fileMarkings: fileMarkingIds }));
+    const validationMode = 'draft';
+
+    const variables = files.map(({ file, connectors, configuration }) => (selectedEntityId
+      ? (
+        {
+          id: selectedEntityId,
+          file,
+          fileMarkings: fileMarkingIds,
+          validationMode,
+        } as ImportFilesDialogEntityMutation$variables
+      ) : (
+        {
+          file,
+          connectors: connectors?.map(({ id: connectorId }) => ({ connectorId, configuration })),
+          fileMarkings: fileMarkingIds,
+          validationMode,
+        } as ImportFilesDialogGlobalMutation$variables
+      )
+    ));
 
     setUploadedFiles(files.map(({ file: { name } }) => ({ name })));
 
@@ -171,11 +245,13 @@ const ImportFilesDialog = ({ open, handleClose, entityId }: ImportFilesDialogPro
           <>
             <ImportFilesStepper activeStep={activeStep} setActiveStep={setActiveStep} />
             <Box sx={{ paddingBlock: 10 }}>
-              {activeStep === 0 && <ImportFilesUploader
-                files={files}
-                onChange={(newFiles) => setFiles(newFiles)}
-                connectorsData={importContentData}
-                                   />}
+              {activeStep === 0 && queryRef && (
+                <ImportFilesUploader
+                  files={files}
+                  onChange={(newFiles) => setFiles(newFiles)}
+                  queryRef={queryRef}
+                />
+              )}
               {activeStep === 1 && <ImportFilesOptions optionsFormikContext={optionsContext} entityId={entityId} />}
             </Box>
           </>
@@ -196,7 +272,7 @@ const ImportFilesDialog = ({ open, handleClose, entityId }: ImportFilesDialogPro
               {t_i18n('Cancel')}
             </Button>
             {activeStep < 1 ? (
-              <Button onClick={() => setActiveStep(activeStep + 1)} color="secondary">
+              <Button onClick={() => setActiveStep(activeStep + 1)} color="secondary" disabled={!isValid}>
                 {t_i18n('Next')}
               </Button>
             ) : (

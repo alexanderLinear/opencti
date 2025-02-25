@@ -12517,6 +12517,11 @@ input ExclusionListFileAddInput {
   file: Upload!
 }
 
+enum DraftStatus {
+  open
+  validated
+}
+
 type DraftWorkspace implements InternalObject & BasicObject {
   id: ID!
   entity_type: String!
@@ -12527,6 +12532,8 @@ type DraftWorkspace implements InternalObject & BasicObject {
   creators: [Creator!]
   entity_id: String
   objectsCount: DraftObjectsCount!
+  draft_status: DraftStatus!
+  processingCount: Int!
 }
 
 type DraftObjectsCount {

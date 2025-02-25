@@ -20,9 +20,9 @@ import { ABSTRACT_STIX_CORE_OBJECT, ABSTRACT_STIX_CORE_RELATIONSHIP } from '../.
 import { isStixCoreObject } from '../../schema/stixCoreObject';
 import { BUS_TOPICS, isFeatureEnabled, logApp } from '../../config/conf';
 import { getDraftContext } from '../../utils/draftContext';
-import { ENTITY_TYPE_INTERNAL_FILE, ENTITY_TYPE_USER, ENTITY_TYPE_WORK } from '../../schema/internalObject';
+import { ENTITY_TYPE_BACKGROUND_TASK, ENTITY_TYPE_INTERNAL_FILE, ENTITY_TYPE_USER, ENTITY_TYPE_WORK } from '../../schema/internalObject';
 import { usersSessionRefresh } from '../../domain/user';
-import { elAggregationCount, elList } from '../../database/engine';
+import { elAggregationCount, elCount, elList } from '../../database/engine';
 import { buildStixBundle } from '../../database/stix-converter';
 import { pushToWorkerForConnector } from '../../database/rabbitmq';
 import { SYSTEM_USER } from '../../utils/access';
@@ -102,6 +102,56 @@ export const getObjectsCount = async (context: AuthContext, user: AuthUser, draf
   };
 };
 
+export const getProcessingCount = async (context: AuthContext, user: AuthUser, draft: BasicStoreEntityDraftWorkspace) => {
+  const draftWorksFilter = {
+    filterGroups: [],
+    filters: [
+      {
+        key: 'draft_context',
+        mode: 'or',
+        operator: 'eq',
+        values: [draft.internal_id]
+      },
+      {
+        key: 'status',
+        mode: 'or',
+        operator: 'eq',
+        values: ['wait', 'progress']
+      }
+    ],
+    mode: 'and'
+  };
+  const worksOpts = {
+    types: [ENTITY_TYPE_WORK],
+    filters: draftWorksFilter,
+  };
+  const draftIncompleteWorksCount = await elCount(context, context.user, READ_INDEX_HISTORY, worksOpts);
+  const draftTasksFilter = {
+    filterGroups: [],
+    filters: [
+      {
+        key: 'draft_context',
+        mode: 'or',
+        operator: 'eq',
+        values: [draft.internal_id]
+      },
+      {
+        key: 'completed',
+        mode: 'or',
+        operator: 'eq',
+        values: ['false']
+      }
+    ],
+    mode: 'and'
+  };
+  const tasksOpts = {
+    types: [ENTITY_TYPE_BACKGROUND_TASK],
+    filters: draftTasksFilter,
+  };
+  const draftIncompleteTasksCount = await elCount(context, context.user, READ_INDEX_INTERNAL_OBJECTS, tasksOpts);
+  return draftIncompleteTasksCount + draftIncompleteWorksCount;
+};
+
 export const listDraftObjects = (context: AuthContext, user: AuthUser, args: QueryDraftWorkspaceEntitiesArgs) => {
   let types: string[] = [];
   const { draftId, ...listArgs } = args;
@@ -150,6 +200,7 @@ export const addDraftWorkspace = async (context: AuthContext, user: AuthUser, in
   }
   const defaultOps = {
     created_at: now(),
+    draft_status: 'open',
   };
   const draftWorkspaceInput = { ...input, ...defaultOps };
   return createInternalObject<StoreEntityDraftWorkspace>(context, user, draftWorkspaceInput, ENTITY_TYPE_DRAFT_WORKSPACE);

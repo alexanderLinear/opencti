@@ -15938,11 +15938,10 @@ export type MutationUpdateConnectorTriggerArgs = {
 
 
 export type MutationUploadAndAskJobImportArgs = {
-  bypassEntityId?: InputMaybe<Scalars['String']['input']>;
-  bypassValidation?: InputMaybe<Scalars['Boolean']['input']>;
   connectors?: InputMaybe<Array<InputMaybe<ConnectorWithConfig>>>;
   file: Scalars['Upload']['input'];
   fileMarkings?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
+  noTriggerImport?: InputMaybe<Scalars['Boolean']['input']>;
   validationMode?: InputMaybe<ValidationMode>;
 };
 
@@ -24555,15 +24554,11 @@ export type StixCoreObjectEditMutationsRestrictionOrganizationDeleteArgs = {
 
 
 export type StixCoreObjectEditMutationsUploadAndAskJobImportArgs = {
-  bypassEntityId?: InputMaybe<Scalars['String']['input']>;
-  bypassValidation?: InputMaybe<Scalars['Boolean']['input']>;
   connectors?: InputMaybe<Array<InputMaybe<ConnectorWithConfig>>>;
   file: Scalars['Upload']['input'];
   fileMarkings?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
-  fromTemplate?: InputMaybe<Scalars['Boolean']['input']>;
   noTriggerImport?: InputMaybe<Scalars['Boolean']['input']>;
   validationMode?: InputMaybe<ValidationMode>;
-  version?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type StixCoreObjectOrStixCoreRelationship = AdministrativeArea | Artifact | AttackPattern | AutonomousSystem | BankAccount | Campaign | CaseIncident | CaseRfi | CaseRft | CaseTemplate | Channel | City | Country | CourseOfAction | Credential | CryptocurrencyWallet | CryptographicKey | DataComponent | DataSource | Directory | DomainName | EmailAddr | EmailMessage | EmailMimePartType | EntitySetting | Event | Feedback | Grouping | Hostname | IPv4Addr | IPv6Addr | Incident | Indicator | Individual | Infrastructure | IntrusionSet | Language | MacAddr | Malware | MalwareAnalysis | ManagerConfiguration | MediaContent | Mutex | Narrative | NetworkTraffic | Note | ObservedData | Opinion | Organization | PaymentCard | Persona | PhoneNumber | Position | Process | PublicDashboard | Region | Report | Sector | Software | StixCoreRelationship | StixFile | Task | Text | ThreatActorGroup | ThreatActorIndividual | Tool | TrackingNumber | Url | UserAccount | UserAgent | Vulnerability | WindowsRegistryKey | WindowsRegistryValueType | Workspace | X509Certificate;

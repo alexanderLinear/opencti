@@ -171,6 +171,7 @@ const ImportFilesDialog = ({ open, handleClose, entityId }: ImportFilesDialogPro
         {
           id: selectedEntityId,
           file,
+          connectors: connectors?.map(({ id: connectorId }) => ({ connectorId, configuration })),
           fileMarkings: fileMarkingIds,
           validationMode,
         } as ImportFilesDialogEntityMutation$variables

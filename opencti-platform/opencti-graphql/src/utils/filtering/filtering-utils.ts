@@ -2,7 +2,7 @@ import { uniq } from 'ramda';
 import { buildRefRelationKey, RULE_PREFIX } from '../../schema/general';
 import { schemaAttributesDefinition } from '../../schema/schema-attributes';
 import { schemaRelationsRefDefinition } from '../../schema/schema-relationsRef';
-import type { Filter, FilterGroup } from '../../generated/graphql';
+import { type Filter, type FilterGroup, FilterMode } from '../../generated/graphql';
 import { FilterOperator } from '../../generated/graphql';
 import {
   CONTEXT_CREATED_BY_FILTER,
@@ -25,6 +25,12 @@ import {
 import { STIX_SIGHTING_RELATIONSHIP } from '../../schema/stixSightingRelationship';
 import { STIX_CORE_RELATIONSHIPS } from '../../schema/stixCoreRelationship';
 import { UnsupportedError } from '../../config/errors';
+
+export const emptyFilterGroup: FilterGroup = {
+  mode: FilterMode.And,
+  filters: [],
+  filterGroups: [],
+};
 
 //----------------------------------------------------------------------------------------------------------------------
 // Basic utility functions

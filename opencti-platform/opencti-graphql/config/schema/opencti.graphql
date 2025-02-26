@@ -1915,6 +1915,11 @@ type ConnectorQueueDetails {
   messages_size: Float!
 }
 
+type ConnectorContractConfiguration {
+  key: String!
+  value: String!
+}
+
 type Connector implements BasicObject & InternalObject {
   id: ID! # internal_id
   standard_id: String!
@@ -1944,6 +1949,10 @@ type Connector implements BasicObject & InternalObject {
   ## Built in Connector
   built_in: Boolean
   configurations: [ConnectorConfiguration!]
+  ## Manager
+  manager_id: String
+  manager_status: String
+  manager_contract_configuration: [ConnectorContractConfiguration!]
 }
 
 ############## Rules
